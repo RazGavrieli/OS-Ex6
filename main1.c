@@ -1,6 +1,7 @@
 #include <pthread.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 
 
 #include "queue.h"
@@ -13,6 +14,7 @@ struct queue* createQ() {
      */
     struct queue* Q = (struct queue*)malloc(sizeof(struct queue));
     Q->firstInLine = Q->lastInLine = nullptr;
+    Q->lastQuery = nullptr;
     Q->size = 0;
     
     return Q;
@@ -23,7 +25,9 @@ void destroyQ(struct queue* Q) {
      * @brief For each value in Q, free it and then free Q itself.
      * 
      */
-    
+    if (Q->lastQuery!=NULL) {
+        free(Q->lastQuery);
+    }
     while (Q->size!=0) { 
         /* empty q */
         deQ(Q);
@@ -35,7 +39,8 @@ bool enQ(void* n, struct queue* Q) {
     pthread_mutex_lock(&(Q->q_mutex));
     if (Q->size==0) {
         struct node* newNode = (struct node*)malloc(sizeof(struct node));
-        newNode->value = n;
+        newNode->value = malloc(sizeof(n));
+        memcpy(newNode->value, n, sizeof(n));
         newNode->next = newNode->prev = nullptr;
         Q->firstInLine = Q->lastInLine = newNode;
         Q->size++;
@@ -43,7 +48,8 @@ bool enQ(void* n, struct queue* Q) {
         return true;
     }
     struct node* newNode = (struct node*)malloc(sizeof(struct node));
-    newNode->value = n;
+    newNode->value = malloc(sizeof(n));
+    memcpy(newNode->value, n, sizeof(n));
     Q->lastInLine->prev = newNode;
     newNode->next = Q->lastInLine;
     newNode->prev = nullptr;
@@ -55,42 +61,49 @@ bool enQ(void* n, struct queue* Q) {
 }
 void* deQ(struct queue* Q) {
     if (Q->size==0) {
-        // ####### WAIT ON COND SOMETHING ######
+        // ####### WAIT ON COND OR SOMETHING ######
     }
-    pthread_mutex_lock(&(Q->q_mutex));
 
+    pthread_mutex_lock(&(Q->q_mutex));
+    if (Q->lastQuery!=NULL) {
+        free(Q->lastQuery);
+    }
     if (Q->size==1) {
-        void* ret = Q->firstInLine->value;
+        Q->lastQuery = malloc(sizeof(Q->firstInLine->value));
+        memcpy(Q->lastQuery, Q->firstInLine->value, sizeof(Q->firstInLine->value));
+        free(Q->firstInLine->value);
         free(Q->firstInLine);
         Q->size--;
         pthread_mutex_unlock(&(Q->q_mutex));
 
-        return ret;
+        return Q->lastQuery;
     }
-    void* ret = Q->firstInLine->value;
+    Q->lastQuery = malloc(sizeof(Q->firstInLine->value));
+    memcpy(Q->lastQuery, Q->firstInLine->value, sizeof(Q->firstInLine->value));
     struct node* tempNode = Q->firstInLine->prev;
     tempNode->next = nullptr;
+    free(Q->firstInLine->value);
     free(Q->firstInLine);
     Q->firstInLine = tempNode;
     Q->size--;
 
     pthread_mutex_unlock(&(Q->q_mutex));
 
-    return ret;
+    return Q->lastQuery;
 }
 
 int main() {
     struct queue* thisQ = createQ();
-    int ten = 10;
-    enQ(&ten, thisQ);
+    for (size_t i = 0; i < 10; i++)
+    {
+        enQ(&i, thisQ);
+    }
+    
+    for (size_t i = 0; i < 10; i++)
+    {
+       printf("%d ", *(int*)deQ(thisQ));
+    }
 
-    int *deQedTen = (int*)deQ(thisQ);
-
-    int eleven = 11; 
-    enQ(&eleven, thisQ);
-
-    printf("%d\n", *deQedTen);
-    printf("%d\n", *(int*)deQ(thisQ));
 
     destroyQ(thisQ);
 }

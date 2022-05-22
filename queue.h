@@ -13,13 +13,10 @@ struct queue {
     struct node *lastInLine;
     unsigned int size;
     pthread_mutex_t q_mutex;
+    void* lastQuery;
 };
-// supporting functions
-// createQ
-// destroyQ
-// enQ
-// deQ
 
+// supporting functions
 struct queue* createQ();
 void destroyQ(struct queue*);
 bool enQ(void*, struct queue*);
