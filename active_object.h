@@ -1,6 +1,16 @@
+#include "queue.h" 
+#include <pthread.h>
+
 typedef struct active_object {
+
+    void* (*func1)(void*);
+    void* (*func2)(void*);
+    queue* Q;
+    pthread_t *pid;
+    bool running;
 
 }AO, active_object;
 
-void newAO(void*, void*, void*);
-void destroyAO(AO);
+pthread_t newAO(queue*, void*, void*);
+void* runAO(void* /*AO*/);
+void destroyAO(AO*);

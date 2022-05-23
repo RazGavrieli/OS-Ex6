@@ -2,17 +2,22 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-
+#include <unistd.h>
 
 #include "queue.h"
+#include "active_object.h"
+
 #define nullptr ((void*)0)
 
-struct queue* createQ() {
+
+// ######################################## QUEUE ######################################## //
+
+queue* createQ() {
     /**
      * @brief Construct a new queue named Q, initialize memory for it, and return it.
      * 
      */
-    struct queue* Q = (struct queue*)malloc(sizeof(struct queue));
+    queue* Q = (queue*)malloc(sizeof(queue));
     Q->firstInLine = Q->lastInLine = nullptr;
     Q->lastQuery = nullptr;
     Q->size = 0;
@@ -20,7 +25,7 @@ struct queue* createQ() {
     return Q;
 }
 
-void destroyQ(struct queue* Q) {
+void destroyQ(queue* Q) {
     /**
      * @brief For each value in Q, free it and then free Q itself.
      * 
@@ -29,13 +34,13 @@ void destroyQ(struct queue* Q) {
         free(Q->lastQuery);
     }
     while (Q->size!=0) { 
-        /* empty q */
+        /* make Q empty */
         deQ(Q);
     }
     free(Q);
 }
 
-bool enQ(void* n, struct queue* Q) {
+bool enQ(void* n, queue* Q) {
     pthread_mutex_lock(&(Q->q_mutex));
     if (Q->size==0) {
         struct node* newNode = (struct node*)malloc(sizeof(struct node));
@@ -56,15 +61,21 @@ bool enQ(void* n, struct queue* Q) {
     Q->lastInLine = newNode;
     Q->size++;
     pthread_mutex_unlock(&(Q->q_mutex));
+    pthread_cond_signal(&Q->q_cond);
+
+    
     return true; 
     
 }
-void* deQ(struct queue* Q) {
+void* deQ(queue* Q) {
+    pthread_mutex_lock(&(Q->q_mutex));
     if (Q->size==0) {
         // ####### WAIT ON COND OR SOMETHING ######
+        printf("WAITING FOR NEW VALUE\n");
+        pthread_cond_wait(&Q->q_cond, &Q->q_mutex);
+        printf("GOT NEW VALUE\n");
     }
 
-    pthread_mutex_lock(&(Q->q_mutex));
     if (Q->lastQuery!=NULL) {
         free(Q->lastQuery);
     }
@@ -92,18 +103,81 @@ void* deQ(struct queue* Q) {
     return Q->lastQuery;
 }
 
-int main() {
-    struct queue* thisQ = createQ();
-    for (size_t i = 0; i < 10; i++)
-    {
-        enQ(&i, thisQ);
-    }
-    
-    for (size_t i = 0; i < 10; i++)
-    {
-       printf("%d ", *(int*)deQ(thisQ));
-    }
 
+// ########################################### AO ########################################### //
+/*
+typedef struct active_object {
+
+    void* func1;
+    void* func2;
+    queue* Q;
+}AO, active_object;
+
+void newAO(queue*, void*, void*);
+void destroyAO(AO);
+*/
+
+void* runAO(void* newAO) {
+    AO *ao = (AO*)newAO;
+    while (ao->running) { // chagne to while not destroyed!
+        void* handled_now = ao->func1(deQ(ao->Q));
+        void* result = ao->func2(handled_now);
+        
+        //what to do with the result.
+        printf("the result is here!: %d\n", *(int*)result);
+        }
+    printf("active object terminated!\n");
+    pthread_cancel(*ao->pid);
+}
+
+pthread_t newAO(queue* Q, void* func1, void* func2) {
+    AO *ao = (AO*)malloc(sizeof(AO));
+    ao->func1 = func1;
+    ao->func2 = func1;
+    ao->Q = Q;
+    ao->running = true;
+    ao->pid = (pthread_t*)malloc(sizeof(pthread_t));
+    pthread_create(ao->pid,NULL, runAO, (void*)ao);
+    printf("active object thread created on thread: %ln\n", ao->pid);
+    return *ao->pid;
+}
+
+void destroy(AO* ao) {
+    printf("terminating active object on thread: %ln\n", ao->pid);
+    ao->running=false;
+    free(ao->pid);
+    free(ao);
+}
+
+// ########################################### UTILITIES ########################################### //
+void* func_example_1(void* i) {
+    int* ii = (int*)i;
+    *ii+=10;
+    return ii;
+}
+
+void* func_example_2(void* i) {
+    int* ii = (int*)i;
+    *ii*=3;
+    return ii;
+}
+
+int main() {
+    queue* thisQ = createQ();
+    for (int i = 0; i < 20; i++)
+        enQ(&i, thisQ);
+
+    //pthread_t aoid = 
+    newAO(thisQ, func_example_1, func_example_2);
+    while (true) {
+        sleep(1);
+        for (size_t i = 0; i < 3; i++)
+        {
+            enQ(&i, thisQ);
+        }
+        
+    }
+   // pthread_join(aoid, NULL);
 
     destroyQ(thisQ);
 }

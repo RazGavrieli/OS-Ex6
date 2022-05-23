@@ -1,3 +1,4 @@
+#pragma once
 #include <stdbool.h>
 #include <pthread.h>
 
@@ -8,18 +9,19 @@ struct node {
 };
 
 
-struct queue {
+typedef struct queue {
     struct node *firstInLine;
     struct node *lastInLine;
     unsigned int size;
     pthread_mutex_t q_mutex;
+    pthread_cond_t q_cond;
     void* lastQuery;
-};
+}queue;
 
 // supporting functions
-struct queue* createQ();
-void destroyQ(struct queue*);
-bool enQ(void*, struct queue*);
-void* deQ(struct queue*);
+queue* createQ();
+void destroyQ(queue*);
+bool enQ(void*, queue*);
+void* deQ(queue*);
 
 
