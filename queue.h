@@ -2,6 +2,8 @@
 #include <stdbool.h>
 #include <pthread.h>
 
+
+
 struct node {
     void* value;
     struct node *prev;

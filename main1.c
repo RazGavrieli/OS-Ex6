@@ -1,183 +1,183 @@
-#include <pthread.h>
-#include <stdlib.h>
 #include <stdio.h>
-#include <string.h>
+#include <stdlib.h>
 #include <unistd.h>
+#include <errno.h>
+#include <string.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netdb.h>
+#include <arpa/inet.h>
+#include <sys/wait.h>
+#include <signal.h>
+#include <pthread.h> // threads
 
 #include "queue.h"
 #include "active_object.h"
+#include "server.h"
 
 #define nullptr ((void*)0)
 
 
-// ######################################## QUEUE ######################################## //
+#define PORT "1500"  // the port users will be connecting to
 
-queue* createQ() {
-    /**
-     * @brief Construct a new queue named Q, initialize memory for it, and return it.
-     * 
-     */
-    queue* Q = (queue*)malloc(sizeof(queue));
-    Q->firstInLine = Q->lastInLine = nullptr;
-    Q->lastQuery = nullptr;
-    Q->size = 0;
-    
-    return Q;
-}
+#define BACKLOG 10   // how many pending connections queue will hold
+pthread_t thread_id[BACKLOG];
+int new_fd[BACKLOG];
+int sockfd; 
+bool online;
+queue* inputQueue;
 
-void destroyQ(queue* Q) {
-    /**
-     * @brief For each value in Q, free it and then free Q itself.
-     * 
-     */
-    if (Q->lastQuery!=NULL) {
-        free(Q->lastQuery);
+// get sockaddr, IPv4 or IPv6:
+void *get_in_addr(struct sockaddr *sa)
+{
+    if (sa->sa_family == AF_INET) {
+        return &(((struct sockaddr_in*)sa)->sin_addr);
     }
-    while (Q->size!=0) { 
-        /* make Q empty */
-        deQ(Q);
-    }
-    free(Q);
-}
-
-bool enQ(void* n, queue* Q) {
-    pthread_mutex_lock(&(Q->q_mutex));
-    if (Q->size==0) {
-        struct node* newNode = (struct node*)malloc(sizeof(struct node));
-        newNode->value = malloc(sizeof(n));
-        memcpy(newNode->value, n, sizeof(n));
-        newNode->next = newNode->prev = nullptr;
-        Q->firstInLine = Q->lastInLine = newNode;
-        Q->size++;
-        pthread_mutex_unlock(&(Q->q_mutex));
-        return true;
-    }
-    struct node* newNode = (struct node*)malloc(sizeof(struct node));
-    newNode->value = malloc(sizeof(n));
-    memcpy(newNode->value, n, sizeof(n));
-    Q->lastInLine->prev = newNode;
-    newNode->next = Q->lastInLine;
-    newNode->prev = nullptr;
-    Q->lastInLine = newNode;
-    Q->size++;
-    pthread_mutex_unlock(&(Q->q_mutex));
-    pthread_cond_signal(&Q->q_cond);
-
-    
-    return true; 
-    
-}
-void* deQ(queue* Q) {
-    pthread_mutex_lock(&(Q->q_mutex));
-    if (Q->size==0) {
-        // ####### WAIT ON COND OR SOMETHING ######
-        printf("WAITING FOR NEW VALUE\n");
-        pthread_cond_wait(&Q->q_cond, &Q->q_mutex);
-        printf("GOT NEW VALUE\n");
-    }
-
-    if (Q->lastQuery!=NULL) {
-        free(Q->lastQuery);
-    }
-    if (Q->size==1) {
-        Q->lastQuery = malloc(sizeof(Q->firstInLine->value));
-        memcpy(Q->lastQuery, Q->firstInLine->value, sizeof(Q->firstInLine->value));
-        free(Q->firstInLine->value);
-        free(Q->firstInLine);
-        Q->size--;
-        pthread_mutex_unlock(&(Q->q_mutex));
-
-        return Q->lastQuery;
-    }
-    Q->lastQuery = malloc(sizeof(Q->firstInLine->value));
-    memcpy(Q->lastQuery, Q->firstInLine->value, sizeof(Q->firstInLine->value));
-    struct node* tempNode = Q->firstInLine->prev;
-    tempNode->next = nullptr;
-    free(Q->firstInLine->value);
-    free(Q->firstInLine);
-    Q->firstInLine = tempNode;
-    Q->size--;
-
-    pthread_mutex_unlock(&(Q->q_mutex));
-
-    return Q->lastQuery;
+    return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
 
 
-// ########################################### AO ########################################### //
-/*
-typedef struct active_object {
-
-    void* func1;
-    void* func2;
-    queue* Q;
-}AO, active_object;
-
-void newAO(queue*, void*, void*);
-void destroyAO(AO);
-*/
-
-void* runAO(void* newAO) {
-    AO *ao = (AO*)newAO;
-    while (ao->running) { // chagne to while not destroyed!
-        void* handled_now = ao->func1(deQ(ao->Q));
-        void* result = ao->func2(handled_now);
-        
-        //what to do with the result.
-        printf("the result is here!: %d\n", *(int*)result);
+void *clientThread(void *newfd) {
+    int new_fd = *(int*)newfd;
+    pthread_detach(pthread_self());
+    int numbytes;
+    char buf[1024];
+    bool connected = true;
+    while (connected&&online) {
+        numbytes = recv(new_fd, buf, sizeof(buf), 0);
+        if (numbytes <=0) {
+            perror("recv");
+            connected = false;
+            pthread_exit(NULL);
+            break;
         }
-    printf("active object terminated!\n");
-    pthread_cancel(*ao->pid);
+        //*(buf+numbytes) = '\0';
+        printf("got %s from %d\n", buf, new_fd);
+        struct query* newTask = (struct query*)malloc(sizeof(struct query));
+        newTask->fd = new_fd;
+        memcpy(newTask->text, buf, sizeof(buf));
+        printf("data is now in a struct! text is %s and fd is %d\n", newTask->text, newTask->fd);
+
+        enQ(newTask, inputQueue);
+    }
+    close(new_fd);
 }
 
-pthread_t newAO(queue* Q, void* func1, void* func2) {
-    AO *ao = (AO*)malloc(sizeof(AO));
-    ao->func1 = func1;
-    ao->func2 = func1;
-    ao->Q = Q;
-    ao->running = true;
-    ao->pid = (pthread_t*)malloc(sizeof(pthread_t));
-    pthread_create(ao->pid,NULL, runAO, (void*)ao);
-    printf("active object thread created on thread: %ln\n", ao->pid);
-    return *ao->pid;
-}
-
-void destroy(AO* ao) {
-    printf("terminating active object on thread: %ln\n", ao->pid);
-    ao->running=false;
-    free(ao->pid);
-    free(ao);
-}
-
-// ########################################### UTILITIES ########################################### //
-void* func_example_1(void* i) {
-    int* ii = (int*)i;
-    *ii+=10;
-    return ii;
-}
-
-void* func_example_2(void* i) {
-    int* ii = (int*)i;
-    *ii*=3;
-    return ii;
-}
-
-int main() {
-    queue* thisQ = createQ();
-    for (int i = 0; i < 20; i++)
-        enQ(&i, thisQ);
-
-    //pthread_t aoid = 
-    newAO(thisQ, func_example_1, func_example_2);
-    while (true) {
-        sleep(1);
-        for (size_t i = 0; i < 3; i++)
+void sig_handler(int signum)
+{
+    if (signum == SIGINT) {
+        printf("program terminating\n");
+        online = false;
+        for (size_t i = 0; i < BACKLOG; i++)
         {
-            enQ(&i, thisQ);
+            close(new_fd[i]);
         }
-        
-    }
-   // pthread_join(aoid, NULL);
 
-    destroyQ(thisQ);
+        destroyQ(inputQueue);
+
+        close(sockfd);
+        printf("program terminated gracefully");
+        exit(EXIT_SUCCESS);
+    }
+
 }
+
+int main(void)
+{
+    inputQueue = createQ();
+    AO *firstAO = newAO(inputQueue, 0/*a func that does encripytion*/,0/* a func that is enQing into the second Q */);
+    // AO *secondAO = newAO(secondQueue,  flip caps lock , a func that is enQing into the third Q);
+    // AO *thisAO = newAO(thirdQueue, send data to the fd, null or a func that just passes the value (only returns it));
+    struct addrinfo hints, *servinfo, *p;
+    struct sockaddr_storage their_addr; // connector's address information
+    socklen_t sin_size;
+    struct sigaction sa;
+
+    int yes=1;
+    char s[INET6_ADDRSTRLEN];
+    int rv;
+
+    memset(&hints, 0, sizeof hints);
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_flags = AI_PASSIVE; // use my IP
+
+    if ((rv = getaddrinfo(NULL, PORT, &hints, &servinfo)) != 0) {
+        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
+        return 1;
+    }
+
+    // loop through all the results and bind to the first we can
+    for(p = servinfo; p != NULL; p = p->ai_next) {
+        if ((sockfd = socket(p->ai_family, p->ai_socktype,
+                p->ai_protocol)) == -1) {
+            perror("server: socket");
+            continue;
+        }
+
+        if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &yes,sizeof(int)) == -1) {
+            perror("setsockopt");
+            exit(1);
+        }
+
+        if (bind(sockfd, p->ai_addr, p->ai_addrlen) == -1) {
+            close(sockfd);
+            perror("server: bind");
+            continue;
+        }
+
+        break;
+    }
+
+    freeaddrinfo(servinfo); // all done with this structure
+
+    if (p == NULL)  {
+        fprintf(stderr, "server: failed to bind\n");
+        exit(1);
+    }
+
+    if (listen(sockfd, BACKLOG) == -1) {
+        perror("listen");
+        exit(1);
+    }
+
+    printf("server: waiting for connections...\n");
+    int j = 0;
+    signal (SIGINT,sig_handler);
+    online = true;
+
+        while(1) {  // main accept() loop
+        sin_size = sizeof their_addr;
+        new_fd[j] = accept(sockfd, (struct sockaddr *)&their_addr, &sin_size);
+        if (new_fd[j] == -1) {
+            perror("accept");
+            continue;
+        }
+
+        inet_ntop(their_addr.ss_family,
+        get_in_addr((struct sockaddr *)&their_addr), s, sizeof s);
+        printf("server: got connection from %s\n", s);
+
+        pthread_create(&thread_id[j%BACKLOG], NULL, clientThread, &new_fd[j]);
+        j++;
+    }
+
+    return 0;
+}
+
+
+
+
+// int main() {
+//     queue* thisQ = createQ();
+//     // for (int i = 0; i < 10; i++)
+//     //     enQ(&i, thisQ);
+
+//     AO *ao = newAO(thisQ, func_example_1, func_example_2);
+    
+//     sleep(1);
+//     destroyAO(ao);
+//     destroyQ(thisQ);
+//     sleep(1);
+// }
