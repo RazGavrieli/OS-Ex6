@@ -11,14 +11,15 @@
 #include <sys/types.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
-
+#include <pthread.h>
 #include <arpa/inet.h>
+#include <ctime>
 
 #include <iostream>
 #include <string>
 using namespace std;
-
-
+#define BACKLOG 10
+int sockfd;
 #define PORT "1700" // the port client will be connecting to 
 
 #define MAXDATASIZE 1024 // max number of bytes we can get at once 
@@ -33,9 +34,31 @@ void *get_in_addr(struct sockaddr *sa)
     return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
 
+string gen_random(const int len) {
+    static const char alphanum[] =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        "abcdefghijklmnopqrstuvwxyz";
+    string tmp_s;
+    tmp_s.reserve(len);
+
+    for (int i = 0; i < len; ++i) {
+        tmp_s += alphanum[rand() % (sizeof(alphanum) - 1)];
+    }
+    
+    return tmp_s;
+}
+
+
 int main(int argc, char *argv[])
 {
-    int sockfd, numbytes;  
+
+    for (size_t i = 0; i < 4; i++)
+    {
+        if (fork()==0) {
+            i = 6;
+        }
+    }
+    int numbytes;  
     char buf[MAXDATASIZE];
     struct addrinfo hints, *servinfo, *p;
     int rv;
@@ -74,33 +97,48 @@ int main(int argc, char *argv[])
         fprintf(stderr, "client: failed to connect\n");
         return 2;
     }
-    printf("here");
     inet_ntop(p->ai_family, get_in_addr((struct sockaddr *)p->ai_addr),s, sizeof s);
-    printf("client: connecting to %s\n", s);
 
     freeaddrinfo(servinfo); // all done with this structure
-
-    /*
-        The following while true loop listens to the client's input.
-        For each correct input it communicates with the server over TCP.
-    */
-    bool connected = true;
-    while (connected) {
-        string line;
-        getline(cin, line);
-        char* c = const_cast<char*>(line.c_str());
-        
-        if (send(sockfd, c, 1024, 0) == -1)  {
-            perror("send");
-        }
-
-        numbytes = recv(sockfd, buf, sizeof(buf), 0);
-        if (numbytes <=0) {
-            perror("recv");
-            exit(1);
-        }
-        printf("OUTPUT: %s\n", buf);
+    
+    string line = gen_random((10*getpid()+3)%1000);
+    char* c = const_cast<char*>(line.c_str());
+    printf("SENDING: %s\n", c);
+    if (send(sockfd, c, 1024, 0) == -1)  {
+        perror("send");
     }
+
+    numbytes = recv(sockfd, buf, sizeof(buf), 0);
+    if (numbytes <=0) {
+        perror("recv");
+        exit(1);
+    }
+    int len = strlen(c);
+    for (size_t j = 0; j < len; j++)
+    {
+        if (c[j]>='a'&&c[j]<='z') {
+            c[j] = (c[j]-96)%26+97;
+        } 
+        else if (c[j]>='A'&&c[j]<='Z') {
+            c[j] = (c[j]-64)%26+65;
+        }
+    }
+    for (size_t j = 0; j < len; j++)
+    {
+        if (c[j]>='a'&&c[j]<='z') {
+            c[j] -= 32;
+        } 
+        else if (c[j]>='A'&&c[j]<='Z') {
+            c[j] += 32;
+        }
+    }
+    if (strcmp(c, buf)) {
+        printf("\n\n\t!\t%s != %s\t!\n\n", c, buf);
+        throw runtime_error("THE TEST CASE FAILED\n");
+    }
+
+    while(true)
+
     close(sockfd);
 
     return 0;

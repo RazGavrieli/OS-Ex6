@@ -6,11 +6,11 @@ OBJECTS=server.cpp stack.c
 
 VALGRIND_FLAGS=--leak-check=full
 
-# test: testC stack
-# 	$(CC) stack.o test.o -o test
+test: testC
+	./test localhost
 
-# testC: 
-# 	$(CC) test.c -c
+testC: testclient.cpp
+	$(CXX) $^ -o test
 
 all: server
 	./$^

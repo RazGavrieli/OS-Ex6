@@ -16,17 +16,18 @@
 #include "active_object.h"
 #include "server.h"
 
-#define nullptr ((void*)0)
 
-
-#define PORT "1500"  // the port users will be connecting to
-
-#define BACKLOG 10   // how many pending connections queue will hold
 pthread_t thread_id[BACKLOG];
 int new_fd[BACKLOG];
 int sockfd; 
 bool online;
-queue* inputQueue;
+queue* firstQueue;
+queue* secondQueue;
+queue* thirdQueue;
+AO *firstAO;
+AO *secondAO; 
+AO *thirdAO;
+
 
 // get sockaddr, IPv4 or IPv6:
 void *get_in_addr(struct sockaddr *sa)
@@ -44,6 +45,7 @@ void *clientThread(void *newfd) {
     int numbytes;
     char buf[1024];
     bool connected = true;
+    struct query* newTask;
     while (connected&&online) {
         numbytes = recv(new_fd, buf, sizeof(buf), 0);
         if (numbytes <=0) {
@@ -52,15 +54,14 @@ void *clientThread(void *newfd) {
             pthread_exit(NULL);
             break;
         }
-        //*(buf+numbytes) = '\0';
-        printf("got %s from %d\n", buf, new_fd);
-        struct query* newTask = (struct query*)malloc(sizeof(struct query));
+        *(buf+numbytes) = '\0';
+        newTask = (struct query*)malloc(sizeof(struct query));
         newTask->fd = new_fd;
         memcpy(newTask->text, buf, sizeof(buf));
-        printf("data is now in a struct! text is %s and fd is %d\n", newTask->text, newTask->fd);
-
-        enQ(newTask, inputQueue);
+        printf("Got a new query: '' %s '' | from file descriptor: %d\n", newTask->text, newTask->fd);
+        enQfirst(newTask);
     }
+    free(newTask);
     close(new_fd);
 }
 
@@ -74,21 +75,96 @@ void sig_handler(int signum)
             close(new_fd[i]);
         }
 
-        destroyQ(inputQueue);
-
         close(sockfd);
+        for (size_t i = 0; i < BACKLOG; i++)
+        {
+            pthread_cancel(thread_id[i]);
+        }
+        printf("socket closed\n");
+        destroyAO(firstAO);
+        destroyAO(secondAO);
+        destroyAO(thirdAO);
+        printf("AOs closed\n");
+        destroyQ(firstQueue);
+        destroyQ(secondQueue);
+        destroyQ(thirdQueue);
+        printf("Qs closed\n");
+
+
         printf("program terminated gracefully");
         exit(EXIT_SUCCESS);
     }
 
 }
 
+void* enQfirst(void* i) {
+    enQ(i, firstQueue);
+    return i;
+}
+
+void* func1(void* i) {
+    struct query* currTask = (struct query* )i;
+    int len = strlen(currTask->text);
+    for (size_t j = 0; j < len; j++)
+    {
+        if (currTask->text[j]>='a'&&currTask->text[j]<='z') {
+            currTask->text[j] = (currTask->text[j]-96)%26+97;
+        } 
+        else if (currTask->text[j]>='A'&&currTask->text[j]<='Z') {
+            currTask->text[j] = (currTask->text[j]-64)%26+65;
+        }
+    }
+    return currTask;
+}
+
+void* enQsecond(void* i) {
+    enQ(i, secondQueue);
+    return i;
+}
+
+void* func2(void* i) {
+    struct query *currTask = (struct query*)i;
+    int len = strlen(currTask->text);
+    for (size_t j = 0; j < len; j++)
+    {
+        if (currTask->text[j]>='a'&&currTask->text[j]<='z') {
+            currTask->text[j] -= 32;
+        } 
+        else if (currTask->text[j]>='A'&&currTask->text[j]<='Z') {
+            currTask->text[j] += 32;
+        }
+    }
+    return i;
+}
+
+void* enQthird(void* i) {
+    enQ(i, thirdQueue);
+    return i;
+}
+
+void* func3(void* i) {
+    // this function is currently used a passthrough for AO number 3. 
+    return i;
+}
+
+void* send_data(void* i) {
+    struct query* completedTask = (struct query*)i;
+    int new_fd = completedTask->fd;
+    if (send(new_fd, completedTask->text, 1024, 0) == -1)  {
+        perror("send");
+    }
+    printf("sent: %s to file descriptor: %d\n", completedTask->text,new_fd);
+    return NULL;
+}
+
 int main(void)
 {
-    inputQueue = createQ();
-    AO *firstAO = newAO(inputQueue, 0/*a func that does encripytion*/,0/* a func that is enQing into the second Q */);
-    // AO *secondAO = newAO(secondQueue,  flip caps lock , a func that is enQing into the third Q);
-    // AO *thisAO = newAO(thirdQueue, send data to the fd, null or a func that just passes the value (only returns it));
+    firstQueue = createQ();
+    secondQueue = createQ();
+    thirdQueue = createQ();
+    firstAO = newAO(firstQueue, func1,enQsecond);
+    secondAO = newAO(secondQueue, func2 , enQthird);
+    thirdAO = newAO(thirdQueue, func3, send_data);
     struct addrinfo hints, *servinfo, *p;
     struct sockaddr_storage their_addr; // connector's address information
     socklen_t sin_size;
@@ -154,7 +230,7 @@ int main(void)
             perror("accept");
             continue;
         }
-
+        // need to fix connection to a new client
         inet_ntop(their_addr.ss_family,
         get_in_addr((struct sockaddr *)&their_addr), s, sizeof s);
         printf("server: got connection from %s\n", s);
@@ -170,14 +246,21 @@ int main(void)
 
 
 // int main() {
-//     queue* thisQ = createQ();
-//     // for (int i = 0; i < 10; i++)
-//     //     enQ(&i, thisQ);
+//     firstQueue = createQ();
+//     secondQueue = createQ();
+//     thirdQueue = createQ();
+//     firstAO = newAO(firstQueue, func1,enQsecond);
+//     secondAO = newAO(secondQueue, func2 , enQthird);
+//     thirdAO = newAO(thirdQueue, func3, send_data);
+//     char* t = "y is it always 8 bytes";
+//     for (int i = 0; i < 50; i++) {
+//         struct query* newTask = (struct query*)malloc(sizeof(struct query));
+//         newTask->fd = i;
+//         strcpy(newTask->text, t);
+//         enQfirst(newTask);
+//         sleep(0.6);
+//     }
 
-//     AO *ao = newAO(thisQ, func_example_1, func_example_2);
     
-//     sleep(1);
-//     destroyAO(ao);
-//     destroyQ(thisQ);
-//     sleep(1);
+//     sleep(30);
 // }
