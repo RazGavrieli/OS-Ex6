@@ -1,0 +1,9 @@
+.vscode
+*.o
+main1 
+AOclient
+testAO 
+guardtest 
+singletontest 
+pollclient 
+pollserver
