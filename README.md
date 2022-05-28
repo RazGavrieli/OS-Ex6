@@ -14,3 +14,5 @@ run 'make guardtest' and then run the test using ./guardtest<br>
 run 'make singletontest' and then run the test using ./singletontest<br>
 
 #### RUN QUESTION 6:
+to run the server: 'make pollserver' and then './pollserver'
+to run the client: 'make pollclient' and then './pollclient'
