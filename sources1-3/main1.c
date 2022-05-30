@@ -11,6 +11,7 @@
 #include <sys/wait.h>
 #include <signal.h>
 #include <pthread.h> // threads
+#include <ctype.h>
 
 #include "queue.h"
 #include "active_object.h"
@@ -38,6 +39,15 @@ void *get_in_addr(struct sockaddr *sa)
     return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
 
+bool isprintable(char* text) {
+    for (size_t i = 0; i < strlen(text); i++)
+    {
+        if (!isprint(text[i])) {
+            return false;
+        }
+    }
+    return true;    
+}
 
 void *clientThread(void *newfd) {
     int new_fd = *(int*)newfd;
@@ -55,11 +65,17 @@ void *clientThread(void *newfd) {
             break;
         }
         *(buf+numbytes) = '\0';
-        newTask = (struct query*)malloc(sizeof(struct query));
-        newTask->fd = new_fd;
-        memcpy(newTask->text, buf, sizeof(buf));
-        printf("Got a new query: '' %s '' | from file descriptor: %d\n", newTask->text, newTask->fd);
-        enQfirst(newTask);
+        if (!isprintable(buf)) {
+            if (send(new_fd, "bad input", 1024, 0) == -1)  {
+                perror("send");
+            }
+        } else {
+            newTask = (struct query*)malloc(sizeof(struct query));
+            newTask->fd = new_fd;
+            memcpy(newTask->text, buf, sizeof(buf));
+            printf("Got a new query: '' %s '' | from file descriptor: %d\n", newTask->text, newTask->fd);
+            enQfirst(newTask);
+        }
     }
     free(newTask);
     close(new_fd);
