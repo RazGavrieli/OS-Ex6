@@ -1,12 +1,12 @@
 CC=gcc
 CXX=clang++-9 -std=c++2a
 FLAGS=-pthread
-OBJECTS=active_object.o guard.o main1.o pollserver.o reactor.o testAOserver.o AOclient.o guardtest.o pollclient.o queue.o singleton.o testsingleton.o
+OBJECTS=active_object.o guard.o main1.o pollserver.o reactor.o testAOserver.o AOclient.o guardtest.o pollclient.o queue.o singleton.o
 HEADERS=$(wildcard *.hpp)
 SOURCES1-3_PATH=sources1-3
 SOURCES4-6_PATH=sources4-6
 
-all: main1 AOclient testAO guardtest singletontest pollclient pollserver
+all: main1 AOclient testAO guardtest singleton pollclient pollserver
 
 ## QUESTIONS 1 TO 3 ##
 
@@ -48,11 +48,8 @@ guardtest: guard.o guardtest.o
 singleton.o: $(HEADERS)  $(SOURCES4-6_PATH)/singleton.cpp 
 	$(CXX) $(FLAGS) -c $(SOURCES4-6_PATH)/singleton.cpp 
 
-testsingleton.o: $(HEADERS)  $(SOURCES4-6_PATH)/testsingleton.cpp 
-	$(CXX) $(FLAGS) -c $(SOURCES4-6_PATH)/testsingleton.cpp 
-
-singletontest: singleton.o testsingleton.o
-	$(CXX) $(FLAGS) testsingleton.o singleton.o -o singletontest
+singleton: singleton.o
+	$(CXX) $(FLAGS) singleton.o -o singleton
 
 ## QUESTION 6  ##
 reactor.o: $(HEADERS)  $(SOURCES4-6_PATH)/reactor.cpp 
