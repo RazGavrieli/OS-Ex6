@@ -8,3 +8,4 @@ singletontest
 pollclient 
 pollserver
 singleton
+*.so

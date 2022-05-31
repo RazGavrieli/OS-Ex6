@@ -1,12 +1,12 @@
 CC=gcc
 CXX=clang++-9 -std=c++2a
-FLAGS=-pthread
-OBJECTS=active_object.o guard.o main1.o pollserver.o reactor.o testAOserver.o AOclient.o guardtest.o pollclient.o queue.o singleton.o
+FLAGS=-pthread -fPIC
+OBJECTS=active_object.o guard.o reactor.o queue.o
 HEADERS=$(wildcard *.hpp)
 SOURCES1-3_PATH=sources1-3
 SOURCES4-6_PATH=sources4-6
 
-all: main1 AOclient testAO guardtest singleton pollclient pollserver
+all: main1 AOclient testAO guardtest singleton pollclient pollserver lib.so
 
 ## QUESTIONS 1 TO 3 ##
 
@@ -68,9 +68,9 @@ pollclient: pollclient.o
 	$(CXX) $(FLAGS) pollclient.o  -o pollclient
 
 ### library requirement ###
-Ex6: $(OBJECTS)
-	gcc --shared -fPIC -pthread $(OBJECTS) 
+lib.so: $(OBJECTS)
+	$(CC) --shared -fPIC -pthread $(OBJECTS) -o lib.so
 
 clean: 
-	rm -f *.o main1 testAO AOclient guardtest pollclient pollserver singletontest a.out
+	rm -f *.o main1 testAO AOclient guardtest pollclient pollserver singletontest a.out *.so singleton
  
