@@ -5,7 +5,7 @@ According to assigment requirement in the makefile there is a command 'make Ex6'
 #### RUN QUESTIONS 1-3:
 to run server AO: <br>
 run 'make main1' and then run the server using ./main1 <br>
-run 'make AOclient' and then run the client using ./client localhost (make sure the server is running)  <br>
+run 'make AOclient' and then run the client using ./AOclient localhost (make sure the server is running)  <br>
 run 'make testAO' and then run the tests using ./testAO localhost (make sure the server is running, and the server is frest to pass the tests) <br>
 
 #### RUN QUESTION 4:
